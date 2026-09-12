@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import Groq from "groq-sdk";
 import { z } from "zod";
 
 export const questionnaireSchema = z.object({
@@ -103,10 +104,33 @@ export async function generateProgram(input: Questionnaire) {
   if (provider !== "groq") throw new Error(`Неизвестный AI_PROVIDER: ${provider}`);
   if (!process.env.GROQ_API_KEY) throw new Error("Не задан GROQ_API_KEY в .env");
   const model = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "User-Agent": "forma-ai-fitness/1.0" }, body: JSON.stringify({ model, temperature: 0.2, max_completion_tokens: 4096, top_p: 1, stream: false, reasoning_effort: "medium", include_reasoning: false, messages: [{ role: "user", content: prompt }], response_format: { type: "json_schema", json_schema: { name: "fitness_program", strict: true, schema: programJsonSchema } } }) });
-  if (!response.ok) await providerError(response, "Groq", model);
-  const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Groq вернула пустой ответ");
-  return { provider, model, latencyMs: Date.now() - started, program: parseProgram(content) };
+  const groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY, maxRetries: 0 });
+
+  try {
+    const completion = await groqClient.chat.completions.create({
+      model,
+      temperature: 0.2,
+      max_completion_tokens: 4096,
+      top_p: 1,
+      stream: false,
+      reasoning_effort: "medium",
+      include_reasoning: false,
+      messages: [{ role: "user", content: prompt }],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "fitness_program", strict: true, schema: programJsonSchema },
+      },
+    });
+    const content = completion.choices[0]?.message?.content;
+    if (!content) throw new Error("Groq вернула пустой ответ");
+    return { provider, model, latencyMs: Date.now() - started, program: parseProgram(content) };
+  } catch (error) {
+    if (error instanceof Groq.APIError) {
+      const detail = typeof error.error === "object" && error.error !== null
+        ? JSON.stringify(error.error)
+        : error.message;
+      throw new Error(`Groq отклонила запрос (HTTP ${error.status ?? "?"}) для модели ${model}: ${detail}`);
+    }
+    throw error;
+  }
 }
