@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  authId    String   @unique
+  createdAt DateTime @default(now())
+  programs  Program[]
+  sessions  WorkoutSession[]
+  aiRuns    AiRun[]
+  feedback  Feedback[]
+}
+
+model Exercise {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  muscleGroup String
+  equipment   String
+  planExercises PlanExercise[]
+  sessionExercises SessionExercise[]
+}
+
+model Program {
+  id          String        @id @default(cuid())
+  userId      String
+  name        String
+  createdAt   DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planWorkouts PlanWorkout[]
+  versions    ProgramVersion[]
+}
+
+model PlanWorkout {
+  id        String @id @default(cuid())
+  programId String
+  title     String
+  dayOfWeek Int
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  exercises PlanExercise[]
+  sessions  WorkoutSession[]
+}
+
+model PlanExercise {
+  id            String @id @default(cuid())
+  planWorkoutId String
+  exerciseId    String
+  order         Int
+  targetSets    Int
+  targetReps    String
+  restSeconds   Int
+  planWorkout   PlanWorkout @relation(fields: [planWorkoutId], references: [id], onDelete: Cascade)
+  exercise      Exercise @relation(fields: [exerciseId], references: [id])
+}
+
+model WorkoutSession {
+  id            String @id @default(cuid())
+  userId        String
+  planWorkoutId String?
+  startedAt     DateTime @default(now())
+  finishedAt    DateTime?
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planWorkout   PlanWorkout? @relation(fields: [planWorkoutId], references: [id])
+  exercises     SessionExercise[]
+  feedback      Feedback[]
+}
+
+model SessionExercise {
+  id        String @id @default(cuid())
+  sessionId String
+  exerciseId String
+  order     Int
+  session   WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise  Exercise @relation(fields: [exerciseId], references: [id])
+  sets      SetLog[]
+  @@unique([sessionId, exerciseId])
+}
+
+model SetLog {
+  id               String @id @default(cuid())
+  sessionExerciseId String
+  reps             Int
+  weight           Decimal
+  completedAt      DateTime @default(now())
+  sessionExercise  SessionExercise @relation(fields: [sessionExerciseId], references: [id], onDelete: Cascade)
+  @@index([sessionExerciseId])
+}
+
+model ProgramVersion {
+  id        String   @id @default(cuid())
+  programId String
+  version   Int
+  source    String
+  data      Json
+  createdAt DateTime @default(now())
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  @@unique([programId, version])
+}
+
+model AiRun {
+  id        String   @id @default(cuid())
+  userId    String?
+  provider  String
+  model     String
+  inputHash String
+  output    Json?
+  status    String
+  latencyMs Int
+  error     String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([userId, createdAt])
+  @@index([inputHash])
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  userId    String
+  sessionId String?
+  rating    Int
+  effort    Int
+  notes     String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session   WorkoutSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  @@index([userId, createdAt])
+}
