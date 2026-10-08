@@ -23,6 +23,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://forma:forma@localhost:5432/forma_test?schema=public&connection_limit=5
+      DIRECT_URL: postgresql://forma:forma@localhost:5432/forma_test?schema=public&connection_limit=5
       INTEGRATION_TESTS: "true"
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
