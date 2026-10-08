@@ -2,6 +2,8 @@
 
 Веб-приложение с личными аккаунтами, программами тренировок, журналом подходов и генерацией персональных программ через OpenRouter.
 
+Для запуска с нуля на Supabase и Vercel следуйте [пошаговой инструкции](docs/DEPLOYMENT.md).
+
 ## Возможности
 
 - регистрация, вход и восстановление пароля через Supabase Auth;
@@ -35,6 +37,8 @@
 
 Сначала сделайте резервную копию базы, например через `pg_dump`, либо средствами вашего PostgreSQL-хостинга. Не выполняйте `prisma migrate reset` на базе с нужными данными.
 
+Добавьте `DIRECT_URL` в окружение до запуска Prisma CLI. Для локальной базы он равен `DATABASE_URL`; для Supabase это прямое подключение или Session pooler на порту 5432. Runtime может отдельно использовать Transaction pooler на порту 6543 в `DATABASE_URL`.
+
 Если база уже содержит таблицы предыдущей версии Forma и не содержит истории миграций:
 
 1. Выполните `npx prisma migrate resolve --applied 202610080001_initial`.
@@ -66,6 +70,8 @@ APP_URL="http://localhost:3000"
 Подтверждение регистрации и восстановление завершаются через callback. Открывайте письмо в том браузере, в котором запрашивали ссылку: используется PKCE. Для реальной рассылки настройте SMTP в Supabase и проверьте доставку писем.
 
 Приложение проверяет пользователя через `auth.getUser()` на сервере. Каждый запрос к личным данным проверяет владельца; cookie сам по себе не является подтверждением личности.
+
+Миграции включают RLS без клиентских политик на всех таблицах Forma и отзывают доступ у Supabase-ролей `anon`/`authenticated`. Прямой доступ через Data API не нужен: в Supabase отключите Data API по [официальной инструкции для Prisma](https://supabase.com/docs/guides/database/prisma). Серверное подключение использует владельца таблиц или отдельную роль `BYPASSRLS`; такую роль нельзя выдавать браузеру. При создании отдельной DB-роли следуйте той же инструкции.
 
 ## OpenRouter
 
@@ -106,16 +112,18 @@ CI также проверяет `npm audit --omit=dev --audit-level=moderate`. 
 Интеграционные тесты запускайте только на отдельной пустой тестовой базе:
 
 ```bash
-DATABASE_URL="postgresql://.../forma_test" INTEGRATION_TESTS=true npm run db:deploy
-DATABASE_URL="postgresql://.../forma_test" INTEGRATION_TESTS=true npm run test:integration
+DATABASE_URL="postgresql://.../forma_test" DIRECT_URL="postgresql://.../forma_test" INTEGRATION_TESTS=true npm run db:deploy
+DATABASE_URL="postgresql://.../forma_test" DIRECT_URL="postgresql://.../forma_test" INTEGRATION_TESTS=true npm run test:integration
 ```
 
 На Windows задайте эти переменные через PowerShell или в отдельном окружении. Тесты создают и удаляют фикстуры, включая демо-пользователя; не используйте рабочую базу.
 
+Проверка RLS использует PostgreSQL-роли `pg_read_all_data` и `pg_write_all_data`; тестовое подключение должно иметь право `SET ROLE` для них. Пользователь PostgreSQL из `docker-compose.yml` и CI имеет необходимые права.
+
 ## Production
 
 1. Подключите репозиторий к хостингу с поддержкой Next.js/Node.js 24.
-2. Задайте `DATABASE_URL`, Supabase-переменные, `APP_URL`, `OPENROUTER_API_KEY` и модель до сборки.
+2. Задайте `DATABASE_URL`, `DIRECT_URL`, Supabase-переменные, `APP_URL`, `OPENROUTER_API_KEY` и модель до сборки.
 3. Примените миграции к production-базе: `npm run db:deploy`.
 4. Команда сборки: `npm run db:generate && npm run build`.
 5. Команда запуска на собственном Node-хостинге: `npm start`.

@@ -77,6 +77,23 @@ test("PostgreSQL ownership, concurrency, snapshots, idempotency and quotas", asy
       const second = await reserveGeneration(user.id, input, randomUUID()); await prisma.aiRun.update({ where: { id: second.id }, data: { status: "failed" } });
       await assert.rejects(reserveGeneration(user.id, input, randomUUID()), error => error instanceof ApiError && error.status === 429);
     });
+    await t.test("direct table access cannot bypass server authorization", async () => {
+      const tables = ["User", "Exercise", "Program", "PlanWorkout", "PlanExercise", "WorkoutSession", "SessionExercise", "SetLog", "ProgramVersion", "AiRun", "RateLimit", "Feedback", "_prisma_migrations"];
+      assert.ok(await prisma.user.count() > 0);
+      await prisma.$transaction(async tx => {
+        // PostgreSQL's read-all role has SELECT grants but does not bypass RLS.
+        await tx.$executeRawUnsafe("SET LOCAL ROLE pg_read_all_data");
+        for (const table of tables) {
+          // Identifiers come only from the fixed list above.
+          const rows = await tx.$queryRawUnsafe<Array<{ count: bigint }>>(`SELECT count(*) AS count FROM "${table}"`);
+          assert.equal(rows[0].count, BigInt(0), `${table} must be private`);
+        }
+      });
+      await assert.rejects(prisma.$transaction(async tx => {
+        await tx.$executeRawUnsafe("SET LOCAL ROLE pg_write_all_data");
+        await tx.$executeRaw`INSERT INTO "User" ("id", "authId") VALUES (${randomUUID()}, ${randomUUID()})`;
+      }), /row-level security/i);
+    });
     await t.test("public production requests cannot use the demo account", async () => {
       Object.assign(process.env, { NODE_ENV: "production" }); delete process.env.NEXT_PUBLIC_SUPABASE_URL; delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
       const response = await getMe(); assert.equal(response.status, 503); Object.assign(process.env, { NODE_ENV: "test" });
