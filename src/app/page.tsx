@@ -48,7 +48,10 @@ export default function Home() {
   const load = useCallback(async () => {
     try { await refresh(true); }
     catch (error) {
-      if (error instanceof RequestError && error.status === 401) { setAuth(true); setData(null); }
+      if (error instanceof RequestError && error.status === 401) {
+        setAuth(true); setData(null);
+        setSetup(new URLSearchParams(window.location.search).get("authError") === "1" ? "Ссылка входа устарела или недействительна. Войдите в аккаунт или запросите новую ссылку восстановления." : "");
+      }
       else setSetup(error instanceof Error ? error.message : "Не удалось загрузить приложение.");
     } finally { setLoading(false); }
   }, [refresh]);
@@ -105,7 +108,7 @@ export default function Home() {
   async function programAction(id: string, action: string, name?: string) { await perform("program", async () => { await request(`/api/programs/${id}`, "PATCH", { action, ...(name ? { name } : {}) }); }, "Программа обновлена."); }
 
   if (loading && !data) return <main className={styles.authShell}><section className={styles.authCard}><h1>Forma</h1><p role="status">Загружаем ваш дневник…</p></section></main>;
-  if (auth) return <AuthPanel onAuthenticated={() => void load()} />;
+  if (auth) return <AuthPanel initialMessage={setup} onAuthenticated={() => void load()} />;
   if (!data) return <main className={styles.authShell}><section className={styles.authCard}><h1>Forma</h1><p className={styles.notice} role="alert">{setup || "Не удалось загрузить данные."}</p><button className={styles.startButton} onClick={() => void load()}>Попробовать снова</button></section></main>;
   const active = data.active; const selected = active?.exercises.find(item => item.id === selectedId) || active?.exercises[0];
   const activeProgram = data.programs.find(item => item.id === data.user.activeProgramId && !item.archivedAt);

@@ -3,10 +3,10 @@ import { useState, type FormEvent } from "react";
 import { request } from "@/lib/client";
 import styles from "@/app/page.module.css";
 type Mode = "signin" | "signup" | "forgot" | "reset";
-export function AuthPanel({ onAuthenticated, reset = false }: { onAuthenticated: () => void; reset?: boolean }) {
+export function AuthPanel({ onAuthenticated, reset = false, initialMessage = "" }: { onAuthenticated: () => void; reset?: boolean; initialMessage?: string }) {
   const [mode, setMode] = useState<Mode>(reset ? "reset" : "signin");
   const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false); const [message, setMessage] = useState(initialMessage);
   async function submit(event: FormEvent) {
     event.preventDefault(); if (busy) return; setBusy(true); setMessage("");
     try {

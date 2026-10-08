@@ -26,6 +26,11 @@
     "react-dom": "19.2.8",
     "zod": "^4.6.2"
   },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.0"
+    }
+  },
   "devDependencies": {
     "prisma": "^6.19.0",
     "@playwright/test": "^1.64.0",
