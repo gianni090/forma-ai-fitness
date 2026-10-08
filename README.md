@@ -1,83 +1,123 @@
 # Forma — AI Fitness
 
-Первый рабочий вертикальный срез AI-фитнес-приложения по плану реализации.
+Веб-приложение с личными аккаунтами, программами тренировок, журналом подходов и генерацией персональных программ через OpenRouter.
 
-## Сейчас работает
+## Возможности
 
-- дашборд сегодняшней тренировки;
-- список упражнений и целей по подходам;
-- старт и завершение тренировочной сессии;
-- запись только валидных завершённых подходов (`reps > 0`, `weight >= 0`);
-- REST API для упражнений, плана, сессий и подходов;
-- Prisma-схема PostgreSQL и подключённое постоянное хранение данных;
-- Docker Compose с PostgreSQL.
-- AI-эндпоинт `/api/ai/program` с Groq Structured Outputs и локальным Ollama-режимом;
-- API обратной связи после тренировки и GitHub Actions CI;
-- разделы «История», «Мои планы» и «AI-тренер» с рабочей навигацией;
-- сохранение AI-программ, запуск любого дня плана и форма оценки тренировки;
-- защита от двойного запуска/завершения и безопасные сообщения об ошибках.
+- регистрация, вход и восстановление пароля через Supabase Auth;
+- личный профиль, недельная цель и часовой пояс;
+- создание стартового плана без AI, все дни AI-программы, редактор упражнений и архив;
+- одна активная тренировка на пользователя, восстановление после перезагрузки;
+- запись, исправление и удаление подходов; повторы, вес и упражнения на время;
+- таймер отдыха, завершение и отмена с сохранением истории;
+- реальные показатели за неделю и месяц, объём как вес × повторы;
+- AI учитывает последние 10 завершённых тренировок и 10 оценок;
+- структурированный JSON, Zod-валидация, проверки количества дней, оборудования и целей;
+- серверный ключ OpenRouter, таймаут, персональные лимиты в PostgreSQL и защита от дублей;
+- миграции и CI с настоящим PostgreSQL, тестами владения данными и параллельных запросов.
 
-## Запуск
+## Локальный запуск с нуля
 
-```bash
-npm install
-cp .env.example .env
-npm run dev
+Требуется Node.js 24 и PostgreSQL 16+.
+
+1. Установите зависимости: `npm ci`.
+2. Скопируйте `.env.example` в `.env`.
+3. Поднимите локальную базу: `docker compose up -d db`.
+4. Выполните `npm run db:generate` и `npm run db:deploy`.
+5. Для быстрого локального запуска установите `AUTH_DEMO_MODE="true"`. Этот режим не работает в production.
+6. Выполните `npm run dev` и откройте http://localhost:3000.
+
+В разделе «Мои планы» можно создать стартовую программу и пройти тренировку без AI-ключа. Демо-режим предназначен для одного разработчика. Он не должен использоваться на доступном другим людям dev-сервере.
+
+## Обновление существующей базы
+
+Ранее проект использовал `prisma db push`, поэтому в базе может не быть истории миграций.
+
+Сначала сделайте резервную копию базы, например через `pg_dump`, либо средствами вашего PostgreSQL-хостинга. Не выполняйте `prisma migrate reset` на базе с нужными данными.
+
+Если база уже содержит таблицы предыдущей версии Forma и не содержит истории миграций:
+
+1. Выполните `npx prisma migrate resolve --applied 202610080001_initial`.
+2. Выполните `npm run db:deploy`.
+
+Для пустой базы достаточно `npm run db:deploy`. Если миграции уже применены, повторно отмечать initial не нужно.
+
+Миграция добавляет поля и сохраняет имеющиеся программы, сессии и подходы. Старые подходы планки с нулевым весом переводятся из числа повторов в секунды. Исторические названия и цели копируются в сессии.
+
+## Настройка Supabase Auth
+
+В проекте Supabase включите Email/Password Auth. В Project Settings → API скопируйте URL и publishable key:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="your-publishable-key"
+AUTH_DEMO_MODE="false"
+APP_URL="http://localhost:3000"
 ```
 
-Для PostgreSQL:
+Ключ service_role приложению не требуется.
+
+В Authentication → URL Configuration задайте Site URL и разрешите callback URLs:
+
+- `http://localhost:3000/auth/callback`
+- `http://localhost:3000/auth/callback?next=/reset-password`
+- те же пути на production-домене.
+
+Подтверждение регистрации и восстановление завершаются через callback. Открывайте письмо в том браузере, в котором запрашивали ссылку: используется PKCE. Для реальной рассылки настройте SMTP в Supabase и проверьте доставку писем.
+
+Приложение проверяет пользователя через `auth.getUser()` на сервере. Каждый запрос к личным данным проверяет владельца; cookie сам по себе не является подтверждением личности.
+
+## OpenRouter
+
+```env
+AI_PROVIDER="openrouter"
+OPENROUTER_API_KEY="your-server-key"
+OPENROUTER_MODEL="openai/gpt-oss-120b"
+AI_TIMEOUT_MS="90000"
+AI_DAILY_LIMIT="10"
+```
+
+Создайте ключ в OpenRouter и убедитесь, что его баланс и доступ позволяют использовать выбранную модель. Выбирайте модель с поддержкой JSON Schema. Запрос включает `provider.require_parameters=true`, поэтому несовместимый провайдер не будет молча игнорировать формат.
+
+Ключ хранится только на сервере. Не добавляйте `.env` в Git. Ограничения: до 5 попыток в минуту, по умолчанию 10 в сутки на аккаунт и одна выполняющаяся генерация. Неудачные попытки тоже учитываются. Точная стоимость зависит от выбранной модели и длины ответа; лимит количества запросов не заменяет финансовый лимит в OpenRouter.
+
+Анкета, последние результаты и оценки передаются AI-провайдеру для персонализации. AI не ставит диагнозы. Рекомендации проходят структурные проверки, но они не заменяют консультацию специалиста.
+
+Для локального Ollama укажите `AI_PROVIDER="ollama"` и скачайте подходящую модель. Production использует OpenRouter.
+
+## Проверки
 
 ```bash
-docker compose up -d db
 npm run db:generate
-npm run db:push
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-Для AI через Groq добавьте в `.env` ключ `GROQ_API_KEY`. Ключ используется только на серверном API и не попадает в браузер. Для локального бесплатного режима можно установить Ollama, скачать модель и указать `AI_PROVIDER="ollama"`.
+Typecheck сам генерирует типы Next.js, поэтому проходит на чистой установке.
 
-Если Groq отвечает `403 Forbidden`, проверьте права модели в Groq Console: `Settings → Projects → Limits` (а также `Settings → Organization → Limits`, если используется организация). При стратегии `Only Allow` добавьте выбранную модель `openai/gpt-oss-120b` или `openai/gpt-oss-20b`.
-
-Для текущего локального этапа используется демонстрационный пользователь без авторизации. Данные сессий и подходов сохраняются в PostgreSQL; Supabase Auth подключим следующим этапом.
-
-Если после обновления всё ещё появляется `Watchpack ... lstat 'D:\\pagefile.sys'`, полностью остановите старый `npm run dev` (Ctrl+C), удалите только папку `.next` и запустите dev-сервер заново. В актуальном `next.config.ts` корень Turbopack ограничен папкой проекта.
-
-Проверки перед коммитом: `npm run lint`, `npm run typecheck`, `npm run build`.
-
-## Работа через GitHub
-
-`.env` не добавляется в Git, а `.env.example` добавляется как безопасный шаблон. После первого подключения репозитория обновления проекта можно получать командой `git pull`, а свои изменения отправлять командами `git add`, `git commit` и `git push`.
-
-## Getting Started
-
-First, run the development server:
+Интеграционные тесты запускайте только на отдельной пустой тестовой базе:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+DATABASE_URL="postgresql://.../forma_test" INTEGRATION_TESTS=true npm run db:deploy
+DATABASE_URL="postgresql://.../forma_test" INTEGRATION_TESTS=true npm run test:integration
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+На Windows задайте эти переменные через PowerShell или в отдельном окружении. Тесты создают и удаляют фикстуры, включая демо-пользователя; не используйте рабочую базу.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Production
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Подключите репозиторий к хостингу с поддержкой Next.js/Node.js 24.
+2. Задайте `DATABASE_URL`, Supabase-переменные, `APP_URL`, `OPENROUTER_API_KEY` и модель до сборки.
+3. Примените миграции к production-базе: `npm run db:deploy`.
+4. Команда сборки: `npm run db:generate && npm run build`.
+5. Команда запуска на собственном Node-хостинге: `npm start`.
+6. В Supabase разрешите callback URLs production-домена.
+7. Проверьте регистрацию, письмо подтверждения, восстановление, создание программы, запись тренировки и повторный вход.
+8. Настройте резервное копирование PostgreSQL, проверку `/api/health` и лимит расходов OpenRouter.
 
-## Learn More
+Для Prisma нужен PostgreSQL URL с корректными настройками SSL и пула соединений вашего хостинга. Миграции запускайте через подключение, которое допускает schema changes, а не transaction-only pooler.
 
-To learn more about Next.js, take a look at the following resources:
+CI проверяет генерацию без платного AI-запроса. Живые Supabase email-flow и OpenRouter необходимо проверить с вашими сервисами после настройки окружения.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

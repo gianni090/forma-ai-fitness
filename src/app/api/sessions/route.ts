@@ -1,29 +1,23 @@
-import { NextResponse } from "next/server";
-import { ensureDemoData, sessionDto, sessionInclude } from "@/lib/demo-data";
+import { z } from "zod";
+import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-export async function GET() {
+import { sessionInclude, sessionDto, startSession } from "@/lib/workouts";
+import { readBody, assertSameOrigin, json, errorResponse, ApiError } from "@/lib/errors";
+export async function GET(request: Request) {
   try {
-    const { user } = await ensureDemoData();
-    const sessions = await prisma.workoutSession.findMany({ where: { userId: user.id }, include: sessionInclude, orderBy: { startedAt: "desc" } });
-    return NextResponse.json({ sessions: sessions.map(sessionDto) });
-  } catch { return NextResponse.json({ error: "База данных недоступна" }, { status: 503 }); }
+    const user = await requireUser();
+    const cursor = new URL(request.url).searchParams.get("cursor");
+    if (cursor && !await prisma.workoutSession.findFirst({ where: { id: cursor, userId: user.id } })) throw new ApiError(400, "Некорректная страница истории.");
+    const sessions = await prisma.workoutSession.findMany({ where: { userId: user.id }, include: sessionInclude, orderBy: [{ startedAt: "desc" }, { id: "desc" }], take: 31, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) });
+    return json({ sessions: sessions.slice(0, 30).map(sessionDto), nextCursor: sessions.length > 30 ? sessions[29].id : null });
+  } catch (error) { return errorResponse(error); }
 }
 export async function POST(request: Request) {
   try {
-    const { user, workout } = await ensureDemoData();
-    const body = await request.json().catch(() => ({})) as { planId?: unknown };
-    const requestedPlanId = typeof body.planId === "string" && body.planId.length > 0 ? body.planId : "today";
-    let planWorkoutId = workout.id;
-    if (requestedPlanId !== "today") {
-      const requestedWorkout = await prisma.planWorkout.findFirst({ where: { id: requestedPlanId, program: { userId: user.id } }, select: { id: true } });
-      if (!requestedWorkout) return NextResponse.json({ error: "План тренировки не найден" }, { status: 404 });
-      planWorkoutId = requestedWorkout.id;
-    }
-    // Повторный клик или обновление страницы возобновляет незавершённую сессию.
-    const existing = await prisma.workoutSession.findFirst({ where: { userId: user.id, planWorkoutId, finishedAt: null }, orderBy: { startedAt: "desc" }, include: sessionInclude });
-    if (existing) return NextResponse.json({ session: sessionDto(existing), resumed: true });
-    const session = await prisma.workoutSession.create({ data: { userId: user.id, planWorkoutId }, include: sessionInclude });
-    return NextResponse.json({ session: sessionDto(session) }, { status: 201 });
-  } catch { return NextResponse.json({ error: "Не удалось начать тренировку" }, { status: 503 }); }
+    assertSameOrigin(request); const user = await requireUser(); const parsed = z.object({ planId: z.string().min(1).max(100).optional() }).safeParse(await readBody(request));
+    if (!parsed.success) throw new ApiError(400, "Выберите тренировку.");
+    const result = await startSession(user.id, parsed.data.planId);
+    return json(result, result.resumed ? 200 : 201);
+  } catch (error) { return errorResponse(error); }
 }
+
