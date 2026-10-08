@@ -51,7 +51,8 @@ test("all program days and the timed workout journal work on desktop and mobile"
 test("signed-out users see login and can request password recovery", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill({ status: 401, json: { error: "Войдите", code: "unauthorized" } }));
   await page.route("**/api/auth", route => { expect(route.request().postDataJSON().mode).toBe("forgot"); return route.fulfill({ json: { message: "Если аккаунт существует, на почту отправлена ссылка восстановления." } }); });
-  await page.goto("/");
+  await page.goto("/?authError=1");
+  await expect(page.getByText("Ссылка входа устарела или недействительна. Войдите в аккаунт или запросите новую ссылку восстановления.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Войти", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Забыли пароль?", exact: true }).click();
   await page.getByLabel("Email", { exact: true }).fill("test@example.com");

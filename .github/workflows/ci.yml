@@ -32,6 +32,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=moderate
       - run: npm run db:generate
       - run: npm run db:deploy
       - run: npm run lint
