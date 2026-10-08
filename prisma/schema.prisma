@@ -11,6 +11,11 @@ model User {
   id        String   @id @default(cuid())
   authId    String   @unique
   createdAt DateTime @default(now())
+  name      String   @default("Спортсмен")
+  weeklyGoal Int     @default(3)
+  timezone String    @default("Europe/Moscow")
+  questionnaire Json?
+  activeProgramId String?
   programs  Program[]
   sessions  WorkoutSession[]
   aiRuns    AiRun[]
@@ -19,11 +24,12 @@ model User {
 
 model Exercise {
   id          String         @id @default(cuid())
-  name        String         @unique
+  name        String
   muscleGroup String
   equipment   String
   planExercises PlanExercise[]
   sessionExercises SessionExercise[]
+  @@unique([name, equipment])
 }
 
 model Program {
@@ -31,9 +37,11 @@ model Program {
   userId      String
   name        String
   createdAt   DateTime      @default(now())
+  archivedAt  DateTime?
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   planWorkouts PlanWorkout[]
   versions    ProgramVersion[]
+  @@index([userId, createdAt])
 }
 
 model PlanWorkout {
@@ -41,9 +49,11 @@ model PlanWorkout {
   programId String
   title     String
   dayOfWeek Int
+  focus     String @default("")
   program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
   exercises PlanExercise[]
   sessions  WorkoutSession[]
+  @@index([programId, dayOfWeek])
 }
 
 model PlanExercise {
@@ -54,8 +64,12 @@ model PlanExercise {
   targetSets    Int
   targetReps    String
   restSeconds   Int
+  metric        String @default("reps")
+  notes         String @default("")
+  muscleGroup   String @default("")
   planWorkout   PlanWorkout @relation(fields: [planWorkoutId], references: [id], onDelete: Cascade)
   exercise      Exercise @relation(fields: [exerciseId], references: [id])
+  @@index([planWorkoutId, order])
 }
 
 model WorkoutSession {
@@ -64,10 +78,13 @@ model WorkoutSession {
   planWorkoutId String?
   startedAt     DateTime @default(now())
   finishedAt    DateTime?
+  cancelledAt   DateTime?
+  title         String @default("")
   user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
   planWorkout   PlanWorkout? @relation(fields: [planWorkoutId], references: [id])
   exercises     SessionExercise[]
   feedback      Feedback[]
+  @@index([userId, startedAt])
 }
 
 model SessionExercise {
@@ -75,6 +92,12 @@ model SessionExercise {
   sessionId String
   exerciseId String
   order     Int
+  targetSets Int @default(0)
+  targetReps String @default("")
+  restSeconds Int @default(60)
+  metric String @default("reps")
+  notes String @default("")
+  muscleGroup String @default("")
   session   WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   exercise  Exercise @relation(fields: [exerciseId], references: [id])
   sets      SetLog[]
@@ -87,8 +110,11 @@ model SetLog {
   reps             Int
   weight           Decimal
   completedAt      DateTime @default(now())
+  durationSeconds  Int?
+  clientKey        String?
   sessionExercise  SessionExercise @relation(fields: [sessionExerciseId], references: [id], onDelete: Cascade)
   @@index([sessionExerciseId])
+  @@unique([sessionExerciseId, clientKey])
 }
 
 model ProgramVersion {
@@ -113,9 +139,17 @@ model AiRun {
   latencyMs Int
   error     String?
   createdAt DateTime @default(now())
+  requestKey String? @unique
+  programId String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   @@index([userId, createdAt])
   @@index([inputHash])
+}
+
+model RateLimit {
+  key String @id
+  count Int
+  resetAt DateTime
 }
 
 model Feedback {
@@ -130,3 +164,4 @@ model Feedback {
   session   WorkoutSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   @@index([userId, createdAt])
 }
+

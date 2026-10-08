@@ -1,11 +1,9 @@
-import { NextResponse } from "next/server";
-import { ensureDemoData, planExerciseDto } from "@/lib/demo-data";
+import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
+import { workoutInclude, workoutDto } from "@/lib/workouts";
+import { json, errorResponse } from "@/lib/errors";
 export async function GET() {
-  try {
-    const { workout } = await ensureDemoData();
-    const items = await prisma.planExercise.findMany({ where: { planWorkoutId: workout.id }, include: { exercise: true }, orderBy: { order: "asc" } });
-    return NextResponse.json({ date: new Date().toISOString().slice(0, 10), exercises: items.map(planExerciseDto) });
-  } catch { return NextResponse.json({ error: "База данных недоступна" }, { status: 503 }); }
+  try { const user = await requireUser(); const workout = user.activeProgramId ? await prisma.planWorkout.findFirst({ where: { programId: user.activeProgramId, program: { userId: user.id, archivedAt: null } }, include: workoutInclude, orderBy: { dayOfWeek: "asc" } }) : null; return json({ workout: workout ? workoutDto(workout) : null }); }
+  catch (error) { return errorResponse(error); }
 }
+
